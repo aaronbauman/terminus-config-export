@@ -1,5 +1,5 @@
 {
-    "name": "pantheon-systems/terminus-config-export",
+    "name": "aaronbauman/terminus-config-export",
     "description": "Terminus plugin for updating Composer dependencies",
     "homepage": "https://github.com/aaronbauman/terminus-config-export",
     "authors": [
