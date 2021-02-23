@@ -1,6 +1,6 @@
 {
     "name": "aaronbauman/terminus-config-export",
-    "description": "Terminus plugin for updating Composer dependencies",
+    "description": "Terminus plugin for syncing Drupal site configuration",
     "homepage": "https://github.com/aaronbauman/terminus-config-export",
     "authors": [
         {
