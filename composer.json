@@ -1,0 +1,27 @@
+{
+    "name": "pantheon-systems/terminus-config-export",
+    "description": "Terminus plugin for updating Composer dependencies",
+    "homepage": "https://github.com/aaronbauman/terminus-config-export",
+    "authors": [
+        {
+            "name": "Aaron Bauman",
+            "email": "aaron@messageagency.com",
+            "role": "Developer"
+        }
+    ],
+    "license": "MIT",
+    "type": "terminus-plugin",
+    "require-dev": {
+        "pantheon-systems/terminus": "^2.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Pantheon\\TerminusConfigExport\\": "src"
+        }
+    },
+    "extra": {
+        "terminus": {
+            "compatible-version": "^2.0"
+        }
+    }
+}
