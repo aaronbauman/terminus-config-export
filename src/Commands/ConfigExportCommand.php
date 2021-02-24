@@ -128,6 +128,10 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     try {
       $this->log()->notice('Setting connection mode to SFTP');
       $workflow = $this->env->changeConnectionMode('sftp');
+      // Terminus changes connection mode on the remote, but fails to
+      // change the connection mode property.
+      // @see https://github.com/pantheon-systems/terminus/issues/2122
+      $this->env->set('connection_mode', 'sftp');
     }
     catch (TerminusException $e) {
       $message = $e->getMessage();
