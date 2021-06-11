@@ -59,11 +59,20 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    */
   public function configExport($site_env, $options = ['message' => 'Config export', 'timeout' => self::DEFAULT_WORKFLOW_TIMEOUT]) {
     $this->options = $options;
+    if (!$this->hasConfigDifferences($site_env)) {
+      return;
+    }
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $workflow = $this->setSftp();
     $this->drushCex($workflow);
     $workflow = $this->envCommit();
     $this->setGit($workflow);
+  }
+
+  protected function hasConfigDifferences($site_env) {
+    $output = $code = NULL;
+    exec("terminus drush $site_env cst --no-ansi -n", $output, $code);
+    return !empty($output);
   }
 
   protected function setGit(Workflow $workflow = NULL) {
