@@ -43,6 +43,87 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
   protected $options;
 
   /**
+   * Export config from remote environment to local.
+   *
+   * @authorize
+   *
+   * @command site:config-export-remote
+   * @aliases cexr sexr scexr site:cexr
+   *
+   * @param string $site_env The site UUID or machine name and environment
+   *   (<site>.<env>)
+   *
+   * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
+   * @option string $remote-destination Remote destination directory to sync files within private:// path. Defaults to 'config-export'.
+   * @usage <site.env> Exports config from <site.env> to <destination>
+   */
+
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => 'config-export']) {
+    $this->prepareEnvironment($site_env);
+    [$this->site, $this->env] = $this->getSiteEnv($site_env);
+    $sftp = $this->env->sftpConnectionInfo();
+    $remote_destination = trim($options['remote-destination'], '/');
+    // For some reason sshCommand doesn't work for this:
+    $this->log()->notice('Verifying remote destination.');
+    passthru($sftp['command'] . " << EOF
+mkdir files/private/{$remote_destination}
+bye
+EOF 2>/dev/null");
+    $this->log()->notice('Exporting remote config.');
+    $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
+    $destination = $options['destination'];
+    $this->log()->notice('Verifying local destination.');
+    if (empty($options['destination'])) {
+      $output = [];
+      exec('drush gfd 2>/dev/null', $output);
+      if (empty($output)) {
+        $destination = getcwd();
+      }
+      else {
+        $destination = $output[0];
+      }
+    }
+    $destination = rtrim($destination, '/');
+    $this->log()->notice('Rsyncing config from remote to local.');
+    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
+    $this->log()->notice('Cleaning up file permissions.');
+    passthru('chmod 644 ' . $destination . '/*.yml');
+  }
+
+  /**
+   * Call rsync to or from the specified site.
+   *
+   * @param string $site_env_id Remote site
+   * @param string $src Source path to copy from. Start with ":" for remote.
+   * @param string $dest Destination path to copy to. Start with ":" for remote.
+   * @param boolean $ignoreIfNotExists Silently fail and do not return error if remote source does not exist.
+   */
+  public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true)
+  {
+    list($site, $env) = $this->getSiteEnv($site_env_id);
+    $env_id = $env->getName();
+
+    $siteInfo = $site->serialize();
+    $site_id = $siteInfo['id'];
+
+    $siteAddress = "$env_id.$site_id@appserver.$env_id.$site_id.drush.in:";
+
+    $src = preg_replace('/^:/', $siteAddress, $src);
+    $dest = preg_replace('/^:/', $siteAddress, $dest);
+
+    $this->log()->notice('Rsync {src} => {dest}', ['src' => $src, 'dest' => $dest]);
+    $status = 0;
+    $command = "rsync -rlIvz --ipv4 --exclude=.git -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
+    passthru($command, $status);
+    if (!$ignoreIfNotExists && in_array($status, [0, 23]))
+    {
+      throw new TerminusException('Command `{command}` failed with exit code {status}', ['command' => $command, 'status' => $status]);
+    }
+
+    return $status;
+  }
+
+  /**
    * Export and commit config.
    *
    * @authorize
