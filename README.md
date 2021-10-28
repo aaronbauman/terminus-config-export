@@ -25,3 +25,18 @@ _NB: be	sure to	use the	`--destination`	flag if	you're not in a	working	drupal e
 ## Installation
 
 `composer create-project --no-dev -d ~/.terminus/plugins aaronbauman/terminus-config-export`
+
+
+## Under the hood
+### What happens when I run `cex`?
+Together with Drush, the Terminus plugin will: 
+- Check for difference between active and staged config (`drush cst`).
+- If there's a difference, put the target environment into SFTP mode.
+- Run `drush cex` remotely to export config.
+- Commit the config changes to VCS.
+- Put the site back into git mode.
+
+### What happens when I run `cexr`?
+- Create a private directory in the remote environment (given by `--remote-destination` option)
+- Run `drush cex` remotely to export config to the given directory.
+- `rsync` the config to the local environment, as determined by `--destination` option
