@@ -25,5 +25,9 @@ _NB: be	sure to	use the	`--destination`	flag if	you're not in a	working	drupal e
 ## Installation
 
 ```
+# Terminus 2
+composer create-project --no-dev -d ~/.terminus/plugins aaronbauman/terminus-config-export
+
+# Terminus 3
 terminus self:plugin:install aaronbauman/terminus-config-export
 ```
