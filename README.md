@@ -23,11 +23,14 @@ _NB: be	sure to	use the	`--destination`	flag if	you're not in a	working	drupal e
 
 
 ## Installation
+Depending on which version of Terminus you have installed, install the plugin by using one of the following commands. You can see which version of Terminus you're using by executing `terminus --version`.
 
+### Terminus 2
 ```
-# Terminus 2
 composer create-project --no-dev -d ~/.terminus/plugins aaronbauman/terminus-config-export
+```
 
-# Terminus 3
+### Terminus 3
+```
 terminus self:plugin:install aaronbauman/terminus-config-export
 ```
