@@ -55,10 +55,11 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    *
    * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
    * @option string $remote-destination Remote destination directory to sync files within private:// path. Defaults to 'config-export'.
+   * @option string $remove-existing Remove existing config from remote destination before running drush export. For backwards compatibility only, since `drush cex` already does this.
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
-  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => 'config-export']) {
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => 'config-export', 'remove-existing' => FALSE]) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
@@ -69,6 +70,13 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
 mkdir files/private/{$remote_destination}
 bye
 EOF 2>/dev/null");
+    if ($options['remove-existing']) {
+      $this->log()->notice('Removing existing config.');
+      passthru($sftp['command'] . " << EOF
+rm files/private/{$remote_destination}/*
+bye
+EOF 2>/dev/null");
+    }
     $this->log()->notice('Exporting remote config.');
     $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
     $destination = $options['destination'];
