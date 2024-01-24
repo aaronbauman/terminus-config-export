@@ -69,23 +69,12 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
 mkdir files/private/{$remote_destination}
 bye
 EOF 2>/dev/null");
-    passthru($sftp['command'] . " << EOF
-rm files/private/{$remote_destination}/*
-bye
-EOF 2>/dev/null");
     $this->log()->notice('Exporting remote config.');
     $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
     $destination = $options['destination'];
     $this->log()->notice('Verifying local destination.');
     if (empty($options['destination'])) {
-      $output = [];
-      exec('drush gfd 2>/dev/null', $output);
-      if (empty($output)) {
-        $destination = getcwd();
-      }
-      else {
-        $destination = $output[0];
-      }
+      $destination = getcwd();
     }
     $destination = rtrim($destination, '/');
     $this->log()->notice('Rsyncing config from remote to local.');
