@@ -54,31 +54,25 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    *   (<site>.<env>)
    *
    * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
-   * @option string $remote-destination Remote destination directory to sync files within private:// path. Defaults to 'config-export'.
-   * @option string $remove-existing Remove existing config from remote destination before running drush export. For backwards compatibility only, since `drush cex` already does this.
+   * @option string $remote-destination Remote destination directory relative to /tmp/ to sync files. Defaults to 'config-export'.
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
-  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => 'config-export', 'remove-existing' => FALSE]) {
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '', 'remove-existing' => FALSE]) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
-    $remote_destination = trim($options['remote-destination'], '/');
+    if (empty($remote_destination)) {
+      $remote_destination = 'config-export-' . time();
+    }
     // For some reason sshCommand doesn't work for this:
     $this->log()->notice('Verifying remote destination.');
     passthru($sftp['command'] . " << EOF
-mkdir files/private/{$remote_destination}
+mkdir /tmp/{$remote_destination}
 bye
 EOF 2>/dev/null");
-    if ($options['remove-existing']) {
-      $this->log()->notice('Removing existing config.');
-      passthru($sftp['command'] . " << EOF
-rm files/private/{$remote_destination}/*
-bye
-EOF 2>/dev/null");
-    }
     $this->log()->notice('Exporting remote config.');
-    $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
+    $this->executeCommand(['drush', 'cex', '--destination=/tmp/' . $remote_destination]);
     $destination = $options['destination'];
     $this->log()->notice('Verifying local destination.');
     if (empty($options['destination'])) {
@@ -86,7 +80,7 @@ EOF 2>/dev/null");
     }
     $destination = rtrim($destination, '/');
     $this->log()->notice('Rsyncing config from remote to local.');
-    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
+    $this->rsync($site_env, ':/tmp/' . $remote_destination . '/', $destination);
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
   }
