@@ -58,7 +58,7 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
-  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '', 'remove-existing' => FALSE]) {
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '']) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
@@ -68,11 +68,11 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     // For some reason sshCommand doesn't work for this:
     $this->log()->notice('Verifying remote destination.');
     passthru($sftp['command'] . " << EOF
-mkdir /tmp/{$remote_destination}
+mkdir files/private/{$remote_destination}
 bye
 EOF 2>/dev/null");
     $this->log()->notice('Exporting remote config.');
-    $this->executeCommand(['drush', 'cex', '--destination=/tmp/' . $remote_destination]);
+    $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
     $destination = $options['destination'];
     $this->log()->notice('Verifying local destination.');
     if (empty($options['destination'])) {
@@ -80,7 +80,7 @@ EOF 2>/dev/null");
     }
     $destination = rtrim($destination, '/');
     $this->log()->notice('Rsyncing config from remote to local.');
-    $this->rsync($site_env, ':/tmp/' . $remote_destination . '/', $destination);
+    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
   }
