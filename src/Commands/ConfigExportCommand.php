@@ -151,7 +151,7 @@ EOF 2>/dev/null");
     return !empty($output);
   }
 
-  protected function setGit(Workflow $workflow = NULL) {
+  protected function setGit(?Workflow $workflow = NULL) {
     if ($workflow) {
       $this->wait($workflow);
     }
@@ -194,7 +194,7 @@ EOF 2>/dev/null");
     return $workflow;
   }
 
-  protected function drushCex(Workflow $workflow = NULL) {
+  protected function drushCex(?Workflow $workflow = NULL) {
     if ($workflow) {
       $this->wait($workflow);
     }
