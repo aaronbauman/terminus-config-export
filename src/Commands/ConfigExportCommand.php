@@ -54,7 +54,7 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    *   (<site>.<env>)
    *
    * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
-   * @option string $remote-destination Remote destination directory relative to /tmp/ to sync files. Defaults to 'config-export'.
+   * @option string $remote-destination Remote directory, relative to files/private/, to export config into. Defaults to 'config-export-<timestamp>'.
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
@@ -62,6 +62,7 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
+    $remote_destination = $options['remote-destination'];
     if (empty($remote_destination)) {
       $remote_destination = 'config-export-' . time();
     }
