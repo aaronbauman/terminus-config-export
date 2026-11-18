@@ -80,7 +80,7 @@ EOF 2>/dev/null");
     }
     $destination = rtrim($destination, '/');
     $this->log()->notice('Rsyncing config from remote to local.');
-    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
+    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination, FALSE);
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
   }
@@ -91,7 +91,10 @@ EOF 2>/dev/null");
    * @param string $site_env_id Remote site
    * @param string $src Source path to copy from. Start with ":" for remote.
    * @param string $dest Destination path to copy to. Start with ":" for remote.
-   * @param boolean $ignoreIfNotExists Silently fail and do not return error if remote source does not exist.
+   * @param boolean $ignoreIfNotExists Do not throw if the remote source does not exist (rsync exit code 23).
+   *
+   * @throws \Pantheon\Terminus\Exceptions\TerminusException
+   *   If rsync fails.
    */
   public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true)
   {
@@ -110,7 +113,8 @@ EOF 2>/dev/null");
     $status = 0;
     $command = "rsync -rlIvz --ipv4 --exclude=.git -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
     passthru($command, $status);
-    if (!$ignoreIfNotExists && in_array($status, [0, 23]))
+    $allowed_statuses = $ignoreIfNotExists ? [0, 23] : [0];
+    if (!in_array($status, $allowed_statuses))
     {
       throw new TerminusException('Command `{command}` failed with exit code {status}', ['command' => $command, 'status' => $status]);
     }
