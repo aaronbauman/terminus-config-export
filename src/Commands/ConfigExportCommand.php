@@ -55,10 +55,11 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    *
    * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
    * @option string $remote-destination Remote destination directory relative to /tmp/ to sync files. Defaults to 'config-export'.
+   * @option boolean $keep-remote Keep the remote export directory instead of deleting it afterwards.
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
-  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '']) {
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '', 'keep-remote' => FALSE]) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
@@ -69,16 +70,37 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     $this->log()->notice('Verifying remote destination.');
     // "-mkdir" lets an existing --remote-destination directory be reused.
     $this->sftpBatch($sftp, ["-mkdir files/private/{$remote_destination}"]);
-    $this->log()->notice('Exporting remote config.');
-    $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
-    $destination = $options['destination'];
-    $this->log()->notice('Verifying local destination.');
-    if (empty($options['destination'])) {
-      $destination = getcwd();
+    try {
+      $this->log()->notice('Exporting remote config.');
+      $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
+      $destination = $options['destination'];
+      $this->log()->notice('Verifying local destination.');
+      if (empty($options['destination'])) {
+        $destination = getcwd();
+      }
+      $destination = rtrim($destination, '/');
+      $this->log()->notice('Rsyncing config from remote to local.');
+      // Removing each file as it is copied is much faster than deleting
+      // them one by one over SFTP afterwards.
+      $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination, TRUE, empty($options['keep-remote']));
     }
-    $destination = rtrim($destination, '/');
-    $this->log()->notice('Rsyncing config from remote to local.');
-    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
+    finally {
+      if (empty($options['keep-remote'])) {
+        $this->log()->notice('Removing remote export directory.');
+        // SFTP has no recursive delete. "-rm" clears any files left by a
+        // failed export or copy. A cleanup failure must not hide an earlier
+        // export error.
+        try {
+          $this->sftpBatch($sftp, [
+            "-rm files/private/{$remote_destination}/*",
+            "rmdir files/private/{$remote_destination}",
+          ]);
+        }
+        catch (TerminusException $e) {
+          $this->log()->warning('Could not remove the remote export directory: {message}', ['message' => $e->getMessage()]);
+        }
+      }
+    }
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
   }
@@ -125,8 +147,9 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    * @param string $src Source path to copy from. Start with ":" for remote.
    * @param string $dest Destination path to copy to. Start with ":" for remote.
    * @param boolean $ignoreIfNotExists Silently fail and do not return error if remote source does not exist.
+   * @param boolean $removeSourceFiles Delete each source file once it has been copied.
    */
-  public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true)
+  public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true, $removeSourceFiles = false)
   {
     list($site, $env) = $this->getSiteEnv($site_env_id);
     $env_id = $env->getName();
@@ -141,7 +164,8 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
 
     $this->log()->notice('Rsync {src} => {dest}', ['src' => $src, 'dest' => $dest]);
     $status = 0;
-    $command = "rsync -rlIvz --ipv4 --exclude=.git -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
+    $remove = $removeSourceFiles ? ' --remove-source-files' : '';
+    $command = "rsync -rlIvz --ipv4 --exclude=.git{$remove} -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
     passthru($command, $status);
     if (!$ignoreIfNotExists && in_array($status, [0, 23]))
     {
