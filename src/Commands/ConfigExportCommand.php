@@ -61,7 +61,11 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
   public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '']) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
-    $sftp = $this->env->sftpConnectionInfo();
+    // Terminus 4 returns no SFTP details for sites using an external VCS
+    // (e.g. Pantheon's GitHub integration), but SFTP still works in Git mode.
+    $sftp = method_exists($this->env, 'sshConnectionInfo')
+      ? $this->env->sshConnectionInfo()
+      : $this->env->sftpConnectionInfo();
     if (empty($remote_destination)) {
       $remote_destination = 'config-export-' . time();
     }
