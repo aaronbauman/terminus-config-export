@@ -55,10 +55,11 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
    *
    * @option string $destination Local destination directory to sync files. Defaults to drush config directory, or cwd if not found.
    * @option string $remote-destination Remote destination directory relative to /tmp/ to sync files. Defaults to 'config-export'.
+   * @option boolean $keep-remote Keep the remote export directory instead of deleting it afterwards.
    * @usage <site.env> Exports config from <site.env> to <destination>
    */
 
-  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '']) {
+  public function configExportRemote($site_env, $options = ['destination' => '', 'remote-destination' => '', 'keep-remote' => FALSE]) {
     $this->prepareEnvironment($site_env);
     [$this->site, $this->env] = $this->getSiteEnv($site_env);
     $sftp = $this->env->sftpConnectionInfo();
@@ -67,22 +68,76 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     }
     // For some reason sshCommand doesn't work for this:
     $this->log()->notice('Verifying remote destination.');
-    passthru($sftp['command'] . " << EOF
-mkdir files/private/{$remote_destination}
-bye
-EOF 2>/dev/null");
-    $this->log()->notice('Exporting remote config.');
-    $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
-    $destination = $options['destination'];
-    $this->log()->notice('Verifying local destination.');
-    if (empty($options['destination'])) {
-      $destination = getcwd();
+    // "-mkdir" lets an existing --remote-destination directory be reused.
+    $this->sftpBatch($sftp, ["-mkdir files/private/{$remote_destination}"]);
+    try {
+      $this->log()->notice('Exporting remote config.');
+      $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
+      $destination = $options['destination'];
+      $this->log()->notice('Verifying local destination.');
+      if (empty($options['destination'])) {
+        $destination = getcwd();
+      }
+      $destination = rtrim($destination, '/');
+      $this->log()->notice('Rsyncing config from remote to local.');
+      // Removing each file as it is copied is much faster than deleting
+      // them one by one over SFTP afterwards.
+      $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination, TRUE, empty($options['keep-remote']));
     }
-    $destination = rtrim($destination, '/');
-    $this->log()->notice('Rsyncing config from remote to local.');
-    $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination);
+    finally {
+      if (empty($options['keep-remote'])) {
+        $this->log()->notice('Removing remote export directory.');
+        // SFTP has no recursive delete. "-rm" clears any files left by a
+        // failed export or copy. A cleanup failure must not hide an earlier
+        // export error.
+        try {
+          $this->sftpBatch($sftp, [
+            "-rm files/private/{$remote_destination}/*",
+            "rmdir files/private/{$remote_destination}",
+          ]);
+        }
+        catch (TerminusException $e) {
+          $this->log()->warning('Could not remove the remote export directory: {message}', ['message' => $e->getMessage()]);
+        }
+      }
+    }
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
+  }
+
+  /**
+   * Runs SFTP commands against the environment in batch mode.
+   *
+   * @param array $sftp
+   *   Connection info, as returned by Environment::sftpConnectionInfo().
+   * @param string[] $commands
+   *   SFTP commands to run. Prefix a command with "-" to ignore its failure.
+   *
+   * @throws \Pantheon\Terminus\Exceptions\TerminusException
+   *   If there is no connection info, SFTP cannot connect, or a command fails.
+   */
+  protected function sftpBatch(array $sftp, array $commands) {
+    if (empty($sftp['username']) || empty($sftp['host'])) {
+      throw new TerminusException(
+        'No SFTP connection information is available for the {env} environment.',
+        ['env' => $this->env->id]
+      );
+    }
+    $command = sprintf(
+      'sftp -b - -o Port=%s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no %s',
+      escapeshellarg($sftp['port'] ?? '2222'),
+      escapeshellarg($sftp['username'] . '@' . $sftp['host'])
+    );
+    $process = proc_open($command, [0 => ['pipe', 'r']], $pipes);
+    if (!is_resource($process)) {
+      throw new TerminusException('Could not start `{command}`.', ['command' => $command]);
+    }
+    fwrite($pipes[0], implode("\n", $commands) . "\n");
+    fclose($pipes[0]);
+    $status = proc_close($process);
+    if ($status !== 0) {
+      throw new TerminusException('Command `{command}` failed with exit code {status}', ['command' => $command, 'status' => $status]);
+    }
   }
 
   /**
@@ -92,8 +147,9 @@ EOF 2>/dev/null");
    * @param string $src Source path to copy from. Start with ":" for remote.
    * @param string $dest Destination path to copy to. Start with ":" for remote.
    * @param boolean $ignoreIfNotExists Silently fail and do not return error if remote source does not exist.
+   * @param boolean $removeSourceFiles Delete each source file once it has been copied.
    */
-  public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true)
+  public function rsync($site_env_id, $src, $dest, $ignoreIfNotExists = true, $removeSourceFiles = false)
   {
     list($site, $env) = $this->getSiteEnv($site_env_id);
     $env_id = $env->getName();
@@ -108,7 +164,8 @@ EOF 2>/dev/null");
 
     $this->log()->notice('Rsync {src} => {dest}', ['src' => $src, 'dest' => $dest]);
     $status = 0;
-    $command = "rsync -rlIvz --ipv4 --exclude=.git -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
+    $remove = $removeSourceFiles ? ' --remove-source-files' : '';
+    $command = "rsync -rlIvz --ipv4 --exclude=.git{$remove} -e 'ssh -p 2222 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no' $src $dest";
     passthru($command, $status);
     if (!$ignoreIfNotExists && in_array($status, [0, 23]))
     {
