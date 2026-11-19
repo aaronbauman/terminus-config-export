@@ -67,10 +67,8 @@ class ConfigExportCommand extends SSHBaseCommand implements SiteAwareInterface {
     }
     // For some reason sshCommand doesn't work for this:
     $this->log()->notice('Verifying remote destination.');
-    passthru($sftp['command'] . " << EOF
-mkdir files/private/{$remote_destination}
-bye
-EOF 2>/dev/null");
+    // "-mkdir" lets an existing --remote-destination directory be reused.
+    $this->sftpBatch($sftp, ["-mkdir files/private/{$remote_destination}"]);
     $this->log()->notice('Exporting remote config.');
     $this->executeCommand(['drush', 'cex', '--destination=private://' . $remote_destination]);
     $destination = $options['destination'];
@@ -83,6 +81,41 @@ EOF 2>/dev/null");
     $this->rsync($site_env, ':files/private/' . $remote_destination . '/', $destination, FALSE);
     $this->log()->notice('Cleaning up file permissions.');
     passthru('chmod 644 ' . $destination . '/*.yml');
+  }
+
+  /**
+   * Runs SFTP commands against the environment in batch mode.
+   *
+   * @param array $sftp
+   *   Connection info, as returned by Environment::sftpConnectionInfo().
+   * @param string[] $commands
+   *   SFTP commands to run. Prefix a command with "-" to ignore its failure.
+   *
+   * @throws \Pantheon\Terminus\Exceptions\TerminusException
+   *   If there is no connection info, SFTP cannot connect, or a command fails.
+   */
+  protected function sftpBatch(array $sftp, array $commands) {
+    if (empty($sftp['username']) || empty($sftp['host'])) {
+      throw new TerminusException(
+        'No SFTP connection information is available for the {env} environment.',
+        ['env' => $this->env->id]
+      );
+    }
+    $command = sprintf(
+      'sftp -b - -o Port=%s -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no %s',
+      escapeshellarg($sftp['port'] ?? '2222'),
+      escapeshellarg($sftp['username'] . '@' . $sftp['host'])
+    );
+    $process = proc_open($command, [0 => ['pipe', 'r']], $pipes);
+    if (!is_resource($process)) {
+      throw new TerminusException('Could not start `{command}`.', ['command' => $command]);
+    }
+    fwrite($pipes[0], implode("\n", $commands) . "\n");
+    fclose($pipes[0]);
+    $status = proc_close($process);
+    if ($status !== 0) {
+      throw new TerminusException('Command `{command}` failed with exit code {status}', ['command' => $command, 'status' => $status]);
+    }
   }
 
   /**
